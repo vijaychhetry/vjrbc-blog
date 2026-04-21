@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rate Limiting in Multi-Tenant APIs — Architecture Challenge | vjrbc.com</title>
+<meta name="description" content="How do you enforce fair API usage across hundreds of tenants without degrading performance for well-behaved clients?">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#FAFAF8;--bg-alt:#F2F1ED;--text:#1A1A18;--text-muted:#6B6B66;--text-light:#9C9C96;--accent:#2D5A27;--accent-light:#E8F0E7;--border:#E2E1DC;--code-bg:#F5F4F0;--mono:'IBM Plex Mono',monospace;--serif:'Source Serif 4',Georgia,serif;--max-w:720px}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--serif);font-size:17px;line-height:1.7;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+::selection{background:var(--accent);color:#fff}
+a{color:var(--accent);text-decoration:none;transition:opacity .2s}a:hover{opacity:.7}
+nav{position:sticky;top:0;z-index:100;border-bottom:1px solid var(--border);backdrop-filter:blur(12px);background:rgba(250,250,248,.92)}
+.nav-inner{max-width:var(--max-w);margin:0 auto;padding:1rem 1.5rem;display:flex;align-items:center;justify-content:space-between}
+.nav-logo{font-family:var(--mono);font-size:.85rem;font-weight:600;color:var(--text)}
+.nav-links{list-style:none;display:flex;gap:1.5rem}
+.nav-links a{font-family:var(--mono);font-size:.78rem;color:var(--text-muted);letter-spacing:.02em;text-transform:lowercase}
+.nav-links a:hover{color:var(--accent)}
+.article-container{max-width:var(--max-w);margin:0 auto;padding:3rem 1.5rem 5rem}
+.article-meta{font-family:var(--mono);font-size:.75rem;color:var(--text-light);letter-spacing:.03em;text-transform:uppercase;margin-bottom:.75rem;display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+.article-meta .separator{color:var(--border)}
+.category-tag{font-family:var(--mono);font-size:.7rem;background:var(--accent-light);color:var(--accent);padding:.15rem .5rem;border-radius:3px;font-weight:500}
+.article-title{font-family:var(--serif);font-size:2.2rem;font-weight:600;line-height:1.2;color:var(--text);margin-bottom:1rem;letter-spacing:-.02em}
+.article-subtitle{font-family:var(--serif);font-size:1.15rem;color:var(--text-muted);line-height:1.5;margin-bottom:2.5rem;padding-bottom:2rem;border-bottom:1px solid var(--border)}
+.section-label{font-family:var(--mono);font-size:.72rem;font-weight:600;color:var(--accent);letter-spacing:.08em;text-transform:uppercase;margin-bottom:.75rem}
+.problem-box{background:var(--bg-alt);border-left:3px solid var(--accent);padding:1.5rem;margin-bottom:2.5rem;border-radius:0 6px 6px 0}
+.problem-box p{margin-bottom:.75rem}.problem-box p:last-child{margin-bottom:0}
+.article-body h2{font-family:var(--serif);font-size:1.4rem;font-weight:600;color:var(--text);margin:2.5rem 0 1rem}
+.article-body p{margin-bottom:1.2rem}
+.article-body code{font-family:var(--mono);font-size:.88em;background:var(--code-bg);padding:.15em .4em;border-radius:3px;color:var(--accent)}
+.tradeoffs{background:#FFF;border:1px solid var(--border);border-radius:6px;padding:1.5rem;margin:2rem 0}
+.tradeoffs h3{font-family:var(--mono);font-size:.8rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-bottom:1rem}
+.tradeoff-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+.tradeoff-col h4{font-family:var(--mono);font-size:.72rem;font-weight:500;color:var(--accent);letter-spacing:.05em;text-transform:uppercase;margin-bottom:.5rem}
+.tradeoff-col ul{list-style:none;padding:0}
+.tradeoff-col li{font-size:.92rem;padding:.25rem 0;color:var(--text-muted);padding-left:1rem;position:relative}
+.tradeoff-col li::before{content:'';position:absolute;left:0;top:.65rem;width:5px;height:5px;border-radius:50%}
+.tradeoff-col.pros li::before{background:var(--accent)}.tradeoff-col.cons li::before{background:var(--text-light)}
+.pattern-spotlight{background:var(--accent-light);border-radius:6px;padding:1.25rem 1.5rem;margin:2rem 0}
+.pattern-spotlight .pattern-name{font-family:var(--mono);font-weight:600;font-size:.95rem;color:var(--accent);margin-bottom:.5rem}
+.pattern-spotlight p{font-size:.95rem;color:var(--text-muted);margin:0}
+.go-deeper{margin-top:2.5rem;padding-top:1.5rem;border-top:1px solid var(--border)}
+.go-deeper a{font-family:var(--mono);font-size:.85rem;display:inline-flex;align-items:center;gap:.4rem}
+.go-deeper a::after{content:'→';transition:transform .2s}.go-deeper a:hover::after{transform:translateX(3px)}
+.series-nav{margin-top:3rem;padding-top:2rem;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.series-badge{font-family:var(--mono);font-size:.72rem;color:var(--text-light);letter-spacing:.05em;text-transform:uppercase}
+.series-link{font-family:var(--mono);font-size:.82rem}
+footer{max-width:var(--max-w);margin:0 auto;padding:2rem 1.5rem;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:.75rem;color:var(--text-light)}
+.footer-links{list-style:none;display:flex;gap:1.25rem}.footer-links a{color:var(--text-light)}.footer-links a:hover{color:var(--accent)}
+@media(max-width:600px){.article-title{font-size:1.7rem}.tradeoff-grid{grid-template-columns:1fr}.series-nav{flex-direction:column;gap:.75rem}}
+@keyframes blink{50%{opacity:0}}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="nav-logo">vjrbc<span style="animation: blink 1s step-end infinite">_</span></a>
+    <ul class="nav-links">
+      <li><a href="/">home</a></li>
+      <li><a href="/blog/architecture-challenge/">challenges</a></li>
+      <li><a href="/#about">about</a></li>
+    </ul>
+  </div>
+</nav>
+
+<article class="article-container">
+  <div class="article-meta">
+    <span>April 23, 2026</span>
+    <span class="separator">&middot;</span>
+    <span class="category-tag">Scalability</span>
+    <span class="separator">&middot;</span>
+    <span>challenge #001</span>
+  </div>
+
+  <h1 class="article-title">Rate Limiting in Multi-Tenant APIs</h1>
+  <p class="article-subtitle">How do you enforce fair API usage across hundreds of tenants without degrading performance for well-behaved clients?</p>
+
+  <div class="section-label">The Problem</div>
+  <div class="problem-box">
+    <p>You're running a multi-tenant SaaS platform where hundreds of tenants share the same API infrastructure. One tenant starts hammering your endpoints with 10x their normal traffic &mdash; maybe a runaway batch job, maybe a misconfigured integration.</p>
+    <p>Your other tenants are starting to see increased latency. You need a rate limiting strategy that&rsquo;s fair, per-tenant, and doesn&rsquo;t require a database call on every single request.</p>
+  </div>
+
+  <div class="article-body">
+    <h2>Solution Approach</h2>
+    <p>The proven approach is a <strong>distributed token bucket</strong> backed by Redis, with tenant-specific limits derived from their subscription tier. Each API request extracts the tenant ID from the JWT or API key, then checks a Redis key like <code>ratelimit:{tenant_id}:{window}</code>.</p>
+
+    <p>Use a sliding window counter rather than fixed windows to avoid the burst-at-boundary problem. Redis&rsquo;s <code>MULTI/EXEC</code> lets you atomically increment the counter and set TTL in one round-trip. For .NET, the <code>System.Threading.RateLimiting</code> namespace gives you <code>TokenBucketRateLimiter</code>, <code>SlidingWindowRateLimiter</code>, and <code>ConcurrencyLimiter</code> out of the box.</p>
+
+    <p>The key architectural decision: implement rate limiting as <strong>middleware</strong>, not in individual controllers. This keeps it consistent and lets you layer limits &mdash; a global limit per tenant, plus endpoint-specific limits for expensive operations like report generation or bulk exports.</p>
+
+    <p>Stripe does this well with a two-tier approach: a generous per-second limit for normal bursts, and a stricter per-minute limit for sustained abuse. Both are communicated via <code>X-RateLimit-*</code> headers so clients can self-throttle.</p>
+
+    <div class="tradeoffs">
+      <h3>Trade-offs</h3>
+      <div class="tradeoff-grid">
+        <div class="tradeoff-col pros">
+          <h4>When to use</h4>
+          <ul>
+            <li>Multi-tenant APIs with shared infrastructure</li>
+            <li>Public-facing APIs with unpredictable traffic</li>
+            <li>Services where one tenant can impact others</li>
+          </ul>
+        </div>
+        <div class="tradeoff-col cons">
+          <h4>When to avoid</h4>
+          <ul>
+            <li>Internal service-to-service calls (use circuit breakers instead)</li>
+            <li>Low-traffic admin APIs where limits add unnecessary complexity</li>
+            <li>Real-time streaming where latency of Redis check matters</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pattern-spotlight">
+    <div class="pattern-name">Pattern: Token Bucket</div>
+    <p>Tokens accumulate at a fixed rate and are consumed per request. This naturally handles bursts (bucket can fill up during quiet periods) while enforcing average throughput. In multi-tenant SaaS, assign different bucket sizes per subscription tier &mdash; your enterprise tenants get a bigger bucket than free-tier users.</p>
+  </div>
+
+  <div class="go-deeper">
+    <div class="section-label">Go Deeper</div>
+    <a href="https://stripe.com/blog/rate-limiters" target="_blank" rel="noopener">Scaling Your API with Rate Limiters &mdash; Stripe Engineering</a>
+  </div>
+
+  <div class="series-nav">
+    <span class="series-badge">Daily Architecture Challenge Series</span>
+    <a href="/blog/architecture-challenge/" class="series-link">&larr; all challenges</a>
+  </div>
+</article>
+
+<footer>
+  <span>&copy; 2026 Vijay Rana Bhat Chhetry</span>
+  <ul class="footer-links">
+    <li><a href="https://github.com/" target="_blank">github</a></li>
+    <li><a href="https://linkedin.com/" target="_blank">linkedin</a></li>
+    <li><a href="mailto:vijay@vjrbc.com">email</a></li>
+  </ul>
+</footer>
+
+</body>
+</html>
