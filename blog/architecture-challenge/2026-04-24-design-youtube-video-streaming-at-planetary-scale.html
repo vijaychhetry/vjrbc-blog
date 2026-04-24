@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design YouTube: Video Streaming at Planetary Scale — Architecture Challenge | vjrbc.com</title>
+<meta name="description" content="Serving 500 hours of uploaded video per minute demands a pipeline, not a server">
+<meta name="author" content="Vijay Rana Bhat Chhetry">
+<meta property="og:title" content="Design YouTube: Video Streaming at Planetary Scale — Architecture Challenge">
+<meta property="og:description" content="Serving 500 hours of uploaded video per minute demands a pipeline, not a server">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://vjrbc.com/blog/architecture-challenge/2026-04-24-design-youtube-video-streaming-at-planetary-scale.html">
+<link rel="canonical" href="https://vjrbc.com/blog/architecture-challenge/2026-04-24-design-youtube-video-streaming-at-planetary-scale.html">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #FAFAF8;
+    --bg-alt: #F2F1ED;
+    --text: #1A1A18;
+    --text-muted: #6B6B66;
+    --text-light: #9C9C96;
+    --accent: #2D5A27;
+    --accent-light: #E8F0E7;
+    --border: #E2E1DC;
+    --code-bg: #F5F4F0;
+    --mono: 'IBM Plex Mono', monospace;
+    --serif: 'Source Serif 4', Georgia, serif;
+    --max-w: 720px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.7;
+    color: var(--text);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection { background: var(--accent); color: #fff; }
+
+  a { color: var(--accent); text-decoration: none; transition: opacity 0.2s; }
+  a:hover { opacity: 0.7; }
+
+  /* ── Navigation ── */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(12px);
+    background: rgba(250, 250, 248, 0.92);
+  }
+
+  .nav-inner {
+    max-width: var(--max-w);
+    margin: 0 auto;
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .nav-logo {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+
+  .nav-links {
+    list-style: none;
+    display: flex;
+    gap: 1.5rem;
+  }
+
+  .nav-links a {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+    text-transform: lowercase;
+  }
+
+  .nav-links a:hover { color: var(--accent); }
+
+  /* ── Article ── */
+  .article-container {
+    max-width: var(--max-w);
+    margin: 0 auto;
+    padding: 3rem 1.5rem 5rem;
+  }
+
+  .article-meta {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--text-light);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .article-meta .separator { color: var(--border); }
+
+  .category-tag {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+  }
+
+  .article-title {
+    font-family: var(--serif);
+    font-size: 2.2rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--text);
+    margin-bottom: 1rem;
+    letter-spacing: -0.02em;
+  }
+
+  .article-subtitle {
+    font-family: var(--serif);
+    font-size: 1.15rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin-bottom: 2.5rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── Problem Section ── */
+  .section-label {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+  }
+
+  .problem-box {
+    background: var(--bg-alt);
+    border-left: 3px solid var(--accent);
+    padding: 1.5rem;
+    margin-bottom: 2.5rem;
+    border-radius: 0 6px 6px 0;
+  }
+
+  .problem-box p {
+    margin-bottom: 0.75rem;
+  }
+
+  .problem-box p:last-child {
+    margin-bottom: 0;
+  }
+
+  /* ── Content ── */
+  .article-body h2 {
+    font-family: var(--serif);
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 2.5rem 0 1rem;
+    letter-spacing: -0.01em;
+  }
+
+  .article-body p {
+    margin-bottom: 1.2rem;
+    color: var(--text);
+  }
+
+  .article-body ul, .article-body ol {
+    margin: 1rem 0 1.2rem 1.5rem;
+  }
+
+  .article-body li {
+    margin-bottom: 0.4rem;
+  }
+
+  .article-body code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--code-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+
+  .article-body pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.25rem;
+    overflow-x: auto;
+    margin: 1.5rem 0;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    line-height: 1.6;
+  }
+
+  .article-body blockquote {
+    border-left: 3px solid var(--accent);
+    padding: 0.75rem 1.25rem;
+    margin: 1.5rem 0;
+    background: var(--accent-light);
+    border-radius: 0 6px 6px 0;
+    font-style: italic;
+    color: var(--text-muted);
+  }
+
+  /* ── Trade-offs Box ── */
+  .tradeoffs {
+    background: #FFF;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 2rem 0;
+  }
+
+  .tradeoffs h3 {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+    color: var(--text);
+  }
+
+  .tradeoff-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+
+  .tradeoff-col h4 {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+  }
+
+  .tradeoff-col ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .tradeoff-col li {
+    font-size: 0.92rem;
+    padding: 0.25rem 0;
+    color: var(--text-muted);
+    padding-left: 1rem;
+    position: relative;
+  }
+
+  .tradeoff-col li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.65rem;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+  }
+
+  .tradeoff-col.pros li::before { background: var(--accent); }
+  .tradeoff-col.cons li::before { background: var(--text-light); }
+
+  /* ── Pattern Spotlight ── */
+  .pattern-spotlight {
+    background: var(--accent-light);
+    border-radius: 6px;
+    padding: 1.25rem 1.5rem;
+    margin: 2rem 0;
+  }
+
+  .pattern-spotlight .pattern-name {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+
+  .pattern-spotlight p {
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    margin: 0;
+  }
+
+  /* ── Go Deeper ── */
+  .go-deeper {
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .go-deeper a {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .go-deeper a::after {
+    content: '→';
+    transition: transform 0.2s;
+  }
+
+  .go-deeper a:hover::after {
+    transform: translateX(3px);
+  }
+
+  /* ── Series Nav ── */
+  .series-nav {
+    margin-top: 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .series-badge {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--text-light);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .series-link {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+  }
+
+  /* ── Footer ── */
+  footer {
+    max-width: var(--max-w);
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--text-light);
+  }
+
+  .footer-links {
+    list-style: none;
+    display: flex;
+    gap: 1.25rem;
+  }
+
+  .footer-links a { color: var(--text-light); }
+  .footer-links a:hover { color: var(--accent); }
+
+  @media (max-width: 600px) {
+    .article-title { font-size: 1.7rem; }
+    .tradeoff-grid { grid-template-columns: 1fr; }
+    .series-nav { flex-direction: column; gap: 0.75rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="nav-logo">vjrbc<span style="animation: blink 1s step-end infinite">_</span></a>
+    <ul class="nav-links">
+      <li><a href="/">home</a></li>
+      <li><a href="/blog/architecture-challenge/">challenges</a></li>
+      <li><a href="/#about">about</a></li>
+    </ul>
+  </div>
+</nav>
+
+<article class="article-container">
+  <div class="article-meta">
+    <span>April 24, 2026</span>
+    <span class="separator">·</span>
+    <span class="category-tag">Scalability</span>
+    <span class="separator">·</span>
+    <span>challenge #2</span>
+  </div>
+
+  <h1 class="article-title">Design YouTube: Video Streaming at Planetary Scale</h1>
+  <p class="article-subtitle">Serving 500 hours of uploaded video per minute demands a pipeline, not a server</p>
+
+  <div class="section-label">The Problem</div>
+  <div class="problem-box">
+        <p>You are in a system design interview. The interviewer says: 'Design a video streaming platform like YouTube. It needs to support 2.5 billion monthly active users, handle 500 hours of video uploaded every minute, and deliver smooth playback across every device and network condition. Start wherever you'd like.'</p>
+    <p>What do you tackle first? A naive approach starts at the API layer — but the real signal the interviewer is looking for is whether you recognize the two asymmetric halves of the problem: the upload-and-transcoding pipeline (write-heavy, async, compute-intensive) and the streaming-and-delivery plane (read-heavy, latency-sensitive, globally distributed). These are fundamentally different workloads and must be designed as independent subsystems. Conflating them is the mistake most candidates make.</p>
+  </div>
+
+  <div class="article-body">
+    <h2>Solution Approach</h2>
+    <p>Split the system into two distinct planes from the start: the <strong>upload pipeline</strong> and the <strong>delivery pipeline</strong>.</p><p><strong>Upload pipeline:</strong> Clients chunk video into 10–50 MB segments and push them to the nearest ingestion edge, which writes raw video to blob storage (Google Cloud Storage in YouTube's case) and publishes a job to a distributed queue. A fleet of stateless transcoding workers fans out in parallel — each video is encoded into multiple resolutions (360p → 8K), multiple codecs (H.264, VP9, AV1), and split into 2–10 second segments. YouTube's custom <code>VCU</code> (Video Coding Unit) chips achieve 20–33x efficiency gains over general-purpose CPUs for this workload. The critical constraint: workers must be stateless and jobs idempotent so any worker can process any segment without coordination overhead.</p><p><strong>Delivery pipeline:</strong> When a user hits play, the client fetches a <em>manifest file</em> — MPD for DASH or M3U8 for HLS — listing every quality tier mapped to segment URLs. The player picks a starting quality from measured bandwidth, then continuously adapts. This is Adaptive Bitrate (ABR) streaming. Segments are served from a global CDN (Google's 3,000+ edge PoPs). Hot videos are pre-positioned at edge; long-tail content is fetched from origin on first miss and cached there forward.</p><p><strong>The one decision that separates good answers from great ones:</strong> treat the manifest as the control plane. ABR logic, DRM license URLs, A/B codec experiments — all of it flows through the manifest. Whoever controls the manifest controls the user experience, independently of the CDN or the encoder.</p>
+
+    <div class="tradeoffs">
+      <h3>Trade-offs</h3>
+      <div class="tradeoff-grid">
+        <div class="tradeoff-col pros">
+          <h4>When to use</h4>
+          <ul>
+                        <li>User-generated video at massive scale (millions of uploads/day)</li>
+            <li>Multi-device playback across wildly varying network conditions</li>
+            <li>Read-to-write ratios of 10,000:1 or higher — optimize the read path first</li>
+          </ul>
+        </div>
+        <div class="tradeoff-col cons">
+          <h4>When to avoid</h4>
+          <ul>
+                        <li>Sub-500ms live events — use WebRTC or RTMP, not DASH/HLS</li>
+            <li>Small internal video libraries — a CDN-hosted MP4 with a presigned URL is sufficient</li>
+            <li>Real-time video conferencing — ABR latency (6–30s) is incompatible with conversation</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pattern-spotlight">
+    <div class="pattern-name">Pattern: Adaptive Bitrate (ABR) Streaming</div>
+    <p>The manifest file is the architectural fulcrum: it decouples encoding decisions from delivery decisions entirely. Encoders produce N renditions of each segment; the ABR algorithm on the client selects the right one per network measurement. In enterprise SaaS this same pattern appears whenever you have expensive async computation producing multiple variants — pre-compute all variants at write time, serve the cheapest matching one at read time. Idempotent workers + manifest-driven delivery = independently scalable encode and serve tiers.</p>
+  </div>
+
+  <div class="go-deeper">
+    <div class="section-label">Go Deeper</div>
+    <a href="https://blog.youtube/inside-youtube/new-era-video-infrastructure/" target="_blank" rel="noopener">Reimagining video infrastructure to empower YouTube — YouTube Engineering Blog</a>
+  </div>
+
+  <div class="series-nav">
+    <span class="series-badge">Daily Architecture Challenge Series</span>
+    <a href="/blog/architecture-challenge/" class="series-link">← all challenges</a>
+  </div>
+</article>
+
+<footer>
+  <span>© 2026 Vijay Rana Bhat Chhetry</span>
+  <ul class="footer-links">
+    <li><a href="https://github.com/" target="_blank">github</a></li>
+    <li><a href="https://linkedin.com/" target="_blank">linkedin</a></li>
+    <li><a href="mailto:vijay@vjrbc.com">email</a></li>
+  </ul>
+</footer>
+
+<style>
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+</body>
+</html>
