@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Design Twitter / X: Timeline Fanout at Scale — Architecture Challenge | vjrbc.com</title>
+<meta name="description" content="The fanout problem — how do you push a tweet to 50 million followers in under 5 seconds?">
+<meta name="author" content="Vijay Rana Bhat Chhetry">
+<meta property="og:title" content="Design Twitter / X: Timeline Fanout at Scale — Architecture Challenge">
+<meta property="og:description" content="The fanout problem — how do you push a tweet to 50 million followers in under 5 seconds?">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://vjrbc.com/blog/architecture-challenge/2026-04-25-design-twitter-x-timeline-fanout-at-scale.html">
+<link rel="canonical" href="https://vjrbc.com/blog/architecture-challenge/2026-04-25-design-twitter-x-timeline-fanout-at-scale.html">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,300;0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #FAFAF8;
+    --bg-alt: #F2F1ED;
+    --text: #1A1A18;
+    --text-muted: #6B6B66;
+    --text-light: #9C9C96;
+    --accent: #2D5A27;
+    --accent-light: #E8F0E7;
+    --border: #E2E1DC;
+    --code-bg: #F5F4F0;
+    --mono: 'IBM Plex Mono', monospace;
+    --serif: 'Source Serif 4', Georgia, serif;
+    --max-w: 720px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.7;
+    color: var(--text);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection { background: var(--accent); color: #fff; }
+
+  a { color: var(--accent); text-decoration: none; transition: opacity 0.2s; }
+  a:hover { opacity: 0.7; }
+
+  /* ── Navigation ── */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(12px);
+    background: rgba(250, 250, 248, 0.92);
+  }
+
+  .nav-inner {
+    max-width: var(--max-w);
+    margin: 0 auto;
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .nav-logo {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+
+  .nav-links {
+    list-style: none;
+    display: flex;
+    gap: 1.5rem;
+  }
+
+  .nav-links a {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+    text-transform: lowercase;
+  }
+
+  .nav-links a:hover { color: var(--accent); }
+
+  /* ── Article ── */
+  .article-container {
+    max-width: var(--max-w);
+    margin: 0 auto;
+    padding: 3rem 1.5rem 5rem;
+  }
+
+  .article-meta {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--text-light);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .article-meta .separator { color: var(--border); }
+
+  .category-tag {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+  }
+
+  .article-title {
+    font-family: var(--serif);
+    font-size: 2.2rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--text);
+    margin-bottom: 1rem;
+    letter-spacing: -0.02em;
+  }
+
+  .article-subtitle {
+    font-family: var(--serif);
+    font-size: 1.15rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin-bottom: 2.5rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── Problem Section ── */
+  .section-label {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+  }
+
+  .problem-box {
+    background: var(--bg-alt);
+    border-left: 3px solid var(--accent);
+    padding: 1.5rem;
+    margin-bottom: 2.5rem;
+    border-radius: 0 6px 6px 0;
+  }
+
+  .problem-box p {
+    margin-bottom: 0.75rem;
+  }
+
+  .problem-box p:last-child {
+    margin-bottom: 0;
+  }
+
+  /* ── Content ── */
+  .article-body h2 {
+    font-family: var(--serif);
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 2.5rem 0 1rem;
+    letter-spacing: -0.01em;
+  }
+
+  .article-body p {
+    margin-bottom: 1.2rem;
+    color: var(--text);
+  }
+
+  .article-body ul, .article-body ol {
+    margin: 1rem 0 1.2rem 1.5rem;
+  }
+
+  .article-body li {
+    margin-bottom: 0.4rem;
+  }
+
+  .article-body code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--code-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+
+  .article-body pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.25rem;
+    overflow-x: auto;
+    margin: 1.5rem 0;
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    line-height: 1.6;
+  }
+
+  .article-body blockquote {
+    border-left: 3px solid var(--accent);
+    padding: 0.75rem 1.25rem;
+    margin: 1.5rem 0;
+    background: var(--accent-light);
+    border-radius: 0 6px 6px 0;
+    font-style: italic;
+    color: var(--text-muted);
+  }
+
+  /* ── Trade-offs Box ── */
+  .tradeoffs {
+    background: #FFF;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 2rem 0;
+  }
+
+  .tradeoffs h3 {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+    color: var(--text);
+  }
+
+  .tradeoff-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+
+  .tradeoff-col h4 {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+  }
+
+  .tradeoff-col ul {
+    list-style: none;
+    padding: 0;
+  }
+
+  .tradeoff-col li {
+    font-size: 0.92rem;
+    padding: 0.25rem 0;
+    color: var(--text-muted);
+    padding-left: 1rem;
+    position: relative;
+  }
+
+  .tradeoff-col li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0.65rem;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+  }
+
+  .tradeoff-col.pros li::before { background: var(--accent); }
+  .tradeoff-col.cons li::before { background: var(--text-light); }
+
+  /* ── Pattern Spotlight ── */
+  .pattern-spotlight {
+    background: var(--accent-light);
+    border-radius: 6px;
+    padding: 1.25rem 1.5rem;
+    margin: 2rem 0;
+  }
+
+  .pattern-spotlight .pattern-name {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+
+  .pattern-spotlight p {
+    font-size: 0.95rem;
+    color: var(--text-muted);
+    margin: 0;
+  }
+
+  /* ── Go Deeper ── */
+  .go-deeper {
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .go-deeper a {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .go-deeper a::after {
+    content: '→';
+    transition: transform 0.2s;
+  }
+
+  .go-deeper a:hover::after {
+    transform: translateX(3px);
+  }
+
+  /* ── Series Nav ── */
+  .series-nav {
+    margin-top: 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .series-badge {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--text-light);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .series-link {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+  }
+
+  /* ── Footer ── */
+  footer {
+    max-width: var(--max-w);
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--text-light);
+  }
+
+  .footer-links {
+    list-style: none;
+    display: flex;
+    gap: 1.25rem;
+  }
+
+  .footer-links a { color: var(--text-light); }
+  .footer-links a:hover { color: var(--accent); }
+
+  @media (max-width: 600px) {
+    .article-title { font-size: 1.7rem; }
+    .tradeoff-grid { grid-template-columns: 1fr; }
+    .series-nav { flex-direction: column; gap: 0.75rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="nav-logo">vjrbc<span style="animation: blink 1s step-end infinite">_</span></a>
+    <ul class="nav-links">
+      <li><a href="/">home</a></li>
+      <li><a href="/blog/architecture-challenge/">challenges</a></li>
+      <li><a href="/#about">about</a></li>
+    </ul>
+  </div>
+</nav>
+
+<article class="article-container">
+  <div class="article-meta">
+    <span>April 25, 2026</span>
+    <span class="separator">·</span>
+    <span class="category-tag">Data</span>
+    <span class="separator">·</span>
+    <span>challenge #3</span>
+  </div>
+
+  <h1 class="article-title">Design Twitter / X: Timeline Fanout at Scale</h1>
+  <p class="article-subtitle">The fanout problem — how do you push a tweet to 50 million followers in under 5 seconds?</p>
+
+  <div class="section-label">The Problem</div>
+  <div class="problem-box">
+        <p>You're in a system design interview. The interviewer asks you to design a Twitter-like platform that handles 500M tweets per day, 300M active users, and 150M daily active users. The system must generate home timelines with P99 latency under 200ms.</p>
+    <p>Focus on timeline generation — this is where most candidates stumble. How do you handle a tweet from a user with 30 million followers without taking down the system? How do you store and serve timelines at 1.15 million reads per second? What is the trade-off between write-time fanout and read-time aggregation?</p>
+  </div>
+
+  <div class="article-body">
+    <h2>Solution Approach</h2>
+    <p>Start with the core data model: users, tweets (~300 bytes each), follower graph, and home timelines. At 500M tweets/day you are looking at ~15K write QPS and 1.15M timeline read QPS — reads dominate by 75x, so you optimize for reads at the cost of write complexity.</p><p>The critical decision is <strong>timeline generation strategy</strong>. A naive pull model (aggregate on read) breaks immediately — querying 2,000 followed accounts per request means 2,000 DB lookups for every timeline view. A pure push model (fanout on write) works until a celebrity with 30M followers tweets, triggering 30M simultaneous Redis writes.</p><p>Twitter's answer: <strong>hybrid fanout</strong>. For regular users, fanout on write — when a tweet is posted, drop it onto Kafka, let fanout workers asynchronously push the tweet ID into each follower's Redis timeline cache (a sorted set capped at ~800 entries). For heavy hitters above a follower threshold, skip fanout entirely. At read time, merge their latest tweets into the requesting user's pre-built cache. O(1) reads for 99.9% of users; the small celebrity merge cost is predictable and bounded.</p><p>Data layer: tweet content in a distributed NoSQL store sharded by tweet ID, social graph in a separate service, full-text search via Elasticsearch. Twitter reported this hybrid approach delivered a 5x improvement in timeline load time over pure pull-on-read aggregation.</p><p>In interviews, the interviewer is testing whether you recognize the power-law distribution of follower counts. Mention the threshold approach — Twitter reportedly uses ~1M followers — and justify why you chose that boundary.</p>
+
+    <div class="tradeoffs">
+      <h3>Trade-offs</h3>
+      <div class="tradeoff-grid">
+        <div class="tradeoff-col pros">
+          <h4>When to use</h4>
+          <ul>
+                        <li>Social feeds with power-law follower distribution (a few accounts have millions of followers)</li>
+            <li>Systems where read QPS dwarfs write QPS by 10x or more</li>
+            <li>Fan-out use cases where per-user inbox/timeline SLA latency is critical</li>
+          </ul>
+        </div>
+        <div class="tradeoff-col cons">
+          <h4>When to avoid</h4>
+          <ul>
+                        <li>Graphs where follower counts are uniformly small — full push-on-write is simpler and sufficient</li>
+            <li>Systems with extremely high celebrity post frequency where even read-time merge becomes expensive</li>
+            <li>Applications where strict timeline ordering is required — async fanout introduces ordering complexity</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pattern-spotlight">
+    <div class="pattern-name">Pattern: Hybrid Fanout (Push/Pull)</div>
+    <p>Write-time fanout to Redis timeline caches handles the common case, while read-time aggregation for power-users prevents thundering-herd write amplification. The same pattern appears in enterprise notification systems, multi-tenant event feeds, and SaaS activity streams — whenever your graph has a power-law distribution, a pure push or pure pull strategy fails at one extreme. The hybrid acknowledges the data distribution reality and handles each case with the optimal strategy, at the cost of a more complex read path that must detect and merge heavy-hitter content.</p>
+  </div>
+
+  <div class="go-deeper">
+    <div class="section-label">Go Deeper</div>
+    <a href="https://blog.twitter.com/engineering/en_us/topics/infrastructure/2017/the-infrastructure-behind-twitter-scale" target="_blank" rel="noopener">The Infrastructure Behind Twitter: Scale — Twitter Engineering Blog</a>
+  </div>
+
+  <div class="series-nav">
+    <span class="series-badge">Daily Architecture Challenge Series</span>
+    <a href="/blog/architecture-challenge/" class="series-link">← all challenges</a>
+  </div>
+</article>
+
+<footer>
+  <span>© 2026 Vijay Rana Bhat Chhetry</span>
+  <ul class="footer-links">
+    <li><a href="https://github.com/" target="_blank">github</a></li>
+    <li><a href="https://linkedin.com/" target="_blank">linkedin</a></li>
+    <li><a href="mailto:vijay@vjrbc.com">email</a></li>
+  </ul>
+</footer>
+
+<style>
+  @keyframes blink { 50% { opacity: 0; } }
+</style>
+</body>
+</html>
